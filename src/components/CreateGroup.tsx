@@ -1,19 +1,28 @@
 import { useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 
-function EmptyIllustration() {
+const STEPS = [
+  { title: 'Name your group', body: 'A trip, a flat, a dinner.' },
+  { title: 'Add the people', body: 'Including yourself.' },
+  { title: 'Log who paid', body: 'We split it equally.' },
+]
+
+/** A sample of the result, so first-time visitors see the payoff before they start. */
+function ExamplePreview() {
   return (
-    <svg viewBox="0 0 160 120" className="h-28 w-auto" aria-hidden="true">
-      <circle cx="80" cy="60" r="52" className="fill-emerald-50 dark:fill-emerald-950/60" />
-      <rect x="42" y="34" width="56" height="64" rx="8" className="fill-white stroke-slate-200 dark:fill-slate-800 dark:stroke-slate-700" strokeWidth="2" />
-      <rect x="52" y="48" width="30" height="5" rx="2.5" className="fill-slate-200 dark:fill-slate-600" />
-      <rect x="52" y="60" width="36" height="5" rx="2.5" className="fill-slate-200 dark:fill-slate-600" />
-      <rect x="52" y="72" width="22" height="5" rx="2.5" className="fill-slate-200 dark:fill-slate-600" />
-      <circle cx="106" cy="44" r="16" className="fill-emerald-500" />
-      <text x="106" y="50" textAnchor="middle" className="fill-white text-[16px] font-bold">$</text>
-      <circle cx="44" cy="92" r="9" className="fill-amber-300 dark:fill-amber-400" />
-      <circle cx="62" cy="96" r="9" className="fill-sky-300 dark:fill-sky-400" />
-    </svg>
+    <div aria-hidden="true" className="relative mx-auto w-full max-w-xs select-none">
+      <div className="absolute inset-x-6 -bottom-2 h-full rounded-3xl bg-emerald-100 dark:bg-emerald-950/60" />
+      <div className="relative rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <p className="text-xs font-semibold tracking-wider text-slate-400 uppercase">Settle up</p>
+        <p className="mt-2 text-base text-slate-700 dark:text-slate-300">
+          <span className="font-semibold text-red-600 dark:text-red-400">Ben</span> pays{' '}
+          <span className="font-semibold text-emerald-700 dark:text-emerald-400">Asha</span>
+        </p>
+        <p className="text-3xl font-bold tracking-tight text-slate-900 tabular-nums dark:text-white">
+          ₹975
+        </p>
+      </div>
+    </div>
   )
 }
 
@@ -31,7 +40,7 @@ export function CreateGroup({ onCreated }: { onCreated: (groupId: string) => voi
     const { data, error } = await supabase.from('groups').insert({ name: trimmed }).select('id').single()
     setSaving(false)
     if (error) {
-      setError("Couldn't create the group. Please try again.")
+      setError("Couldn't create the group. Check your connection and try again.")
       console.error(error)
       return
     }
@@ -39,33 +48,39 @@ export function CreateGroup({ onCreated }: { onCreated: (groupId: string) => voi
   }
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
-      <EmptyIllustration />
-      <h1 className="mt-6 text-xl font-semibold text-slate-900 dark:text-white">Start a group</h1>
-      <p className="mt-2 max-w-xs text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-        A trip, a shared flat or dinner with friends. Log who paid, and SplitSmart works out
-        who owes whom.
+    <main className="flex flex-1 flex-col px-5 pt-8 pb-10">
+      <h1 className="text-3xl leading-tight font-bold tracking-tight text-balance text-slate-900 dark:text-white">
+        Split shared costs.{' '}
+        <span className="text-emerald-600 dark:text-emerald-400">See who owes whom.</span>
+      </h1>
+      <p className="mt-3 text-base text-slate-600 dark:text-slate-400">
+        Log who paid for what. SplitSmart works out the fewest payments to settle up. No sign-up.
       </p>
 
-      <form onSubmit={handleSubmit} className="mt-8 flex w-full max-w-xs flex-col gap-3">
-        <label htmlFor="group-name" className="sr-only">
-          Group name
+      <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-3">
+        <label htmlFor="group-name" className="text-sm font-medium text-slate-900 dark:text-white">
+          Start by naming your group
         </label>
         <input
           id="group-name"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value)
+            setError(null)
+          }}
           placeholder="e.g. Goa trip"
           maxLength={80}
           autoComplete="off"
-          className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-base text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/30 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+          enterKeyHint="go"
+          className="h-14 rounded-2xl border border-slate-300 bg-white px-4 text-lg text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/30 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
         />
         <button
           type="submit"
           disabled={!name.trim() || saving}
-          className="inline-flex h-12 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-base font-medium text-white shadow-sm transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-lg font-semibold text-white shadow-sm transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving ? 'Creating…' : 'Create group'}
+          {!saving && <span aria-hidden="true">→</span>}
         </button>
         {error && (
           <p role="alert" className="text-sm text-red-600 dark:text-red-400">
@@ -73,6 +88,25 @@ export function CreateGroup({ onCreated }: { onCreated: (groupId: string) => voi
           </p>
         )}
       </form>
+
+      <ol className="mt-10 grid grid-cols-3 gap-3">
+        {STEPS.map((s, i) => (
+          <li key={s.title} className="flex flex-col items-start gap-1">
+            <span className="grid size-7 place-items-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200">
+              {i + 1}
+            </span>
+            <span className="text-sm leading-tight font-semibold text-slate-900 dark:text-white">{s.title}</span>
+            <span className="text-xs leading-snug text-slate-500 dark:text-slate-400">{s.body}</span>
+          </li>
+        ))}
+      </ol>
+
+      <div className="mt-10">
+        <p className="mb-3 text-center text-xs font-medium text-slate-400 dark:text-slate-500">
+          You'll end up with something like this
+        </p>
+        <ExamplePreview />
+      </div>
     </main>
   )
 }

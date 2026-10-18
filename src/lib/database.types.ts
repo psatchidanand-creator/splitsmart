@@ -176,7 +176,28 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      add_expense: {
+        Args: {
+          p_amount_cents: number
+          p_description: string
+          p_group_id: string
+          p_paid_by: string
+        }
+        Returns: {
+          amount_cents: number
+          created_at: string
+          description: string
+          group_id: string
+          id: string
+          paid_by: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "expenses"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
     }
     Enums: {
       [_ in never]: never

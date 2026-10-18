@@ -1,10 +1,36 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Tables } from '../lib/database.types'
 import { groupLink, isValidGroupId } from '../lib/groupUrl'
+import type { Balance } from '../lib/settle'
 import { supabase } from '../lib/supabase'
+import { Balances } from './Balances'
+import { AddExpense, ExpenseList } from './Expenses'
 
 type Group = Tables<'groups'>
 type Member = Tables<'members'>
+type Expense = Tables<'expenses'>
+type Tab = 'balances' | 'expenses' | 'members'
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'balances', label: 'Balances' },
+  { id: 'expenses', label: 'Expenses' },
+  { id: 'members', label: 'Members' },
+]
+
+async function fetchBalances(groupId: string) {
+  return supabase
+    .from('balances')
+    .select('member_id, member_name, net_balance_cents')
+    .eq('group_id', groupId)
+}
+
+type BalanceRow = Pick<Tables<'balances'>, 'member_id' | 'member_name' | 'net_balance_cents'>
+
+function toBalances(rows: BalanceRow[]): Balance[] {
+  return rows.flatMap((r) =>
+    r.member_id ? [{ memberId: r.member_id, name: r.member_name ?? '', netCents: r.net_balance_cents ?? 0 }] : [],
+  )
+}
 
 type LoadState =
   | { status: 'loading' }
@@ -18,6 +44,15 @@ const inputClass =
 export function GroupView({ groupId, onLeave }: { groupId: string; onLeave: () => void }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [members, setMembers] = useState<Member[]>([])
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [balances, setBalances] = useState<Balance[]>([])
+  const [tab, setTab] = useState<Tab>('balances')
+
+  const refreshBalances = useCallback(async () => {
+    const { data, error } = await fetchBalances(groupId)
+    if (error) console.error(error)
+    else setBalances(toBalances(data))
+  }, [groupId])
 
   useEffect(() => {
     let cancelled = false
@@ -27,13 +62,19 @@ export function GroupView({ groupId, onLeave }: { groupId: string; onLeave: () =
         setState({ status: 'not-found' })
         return
       }
-      const [groupRes, membersRes] = await Promise.all([
+      const [groupRes, membersRes, expensesRes, balancesRes] = await Promise.all([
         supabase.from('groups').select('*').eq('id', groupId).maybeSingle(),
-        supabase.from('members').select('*').eq('group_id', groupId).order('created_at'),
+        supabase.from('members').select('*').eq('group_id', groupId).order('created_at').order('id'),
+        supabase
+          .from('expenses')
+          .select('*')
+          .eq('group_id', groupId)
+          .order('created_at', { ascending: false }),
+        fetchBalances(groupId),
       ])
       if (cancelled) return
-      if (groupRes.error || membersRes.error) {
-        console.error(groupRes.error ?? membersRes.error)
+      if (groupRes.error || membersRes.error || expensesRes.error || balancesRes.error) {
+        console.error(groupRes.error ?? membersRes.error ?? expensesRes.error ?? balancesRes.error)
         setState({ status: 'error' })
         return
       }
@@ -42,6 +83,10 @@ export function GroupView({ groupId, onLeave }: { groupId: string; onLeave: () =
         return
       }
       setMembers(membersRes.data)
+      setExpenses(expensesRes.data)
+      setBalances(toBalances(balancesRes.data))
+      // A brand-new group has nothing to balance yet, so open on the step that's needed next.
+      setTab(membersRes.data.length < 2 ? 'members' : 'balances')
       setState({ status: 'ready', group: groupRes.data })
     }
     load()
@@ -51,9 +96,18 @@ export function GroupView({ groupId, onLeave }: { groupId: string; onLeave: () =
   }, [groupId])
 
   if (state.status === 'loading') {
+    const bar = 'rounded-full bg-slate-200 dark:bg-slate-800'
     return (
-      <main className="flex flex-1 items-center justify-center p-6 text-sm text-slate-500">
-        Loading group…
+      <main className="flex flex-1 animate-pulse flex-col gap-5 px-4 py-6" aria-busy="true">
+        <span className="sr-only">Loading group…</span>
+        <div className="flex flex-col gap-2">
+          <div className={`h-7 w-48 ${bar}`} />
+          <div className={`h-4 w-32 ${bar}`} />
+        </div>
+        <div className="h-12 rounded-2xl bg-slate-200 dark:bg-slate-800" />
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-24 rounded-3xl bg-slate-200/70 dark:bg-slate-800/70" />
+        ))}
       </main>
     )
   }
@@ -80,17 +134,93 @@ export function GroupView({ groupId, onLeave }: { groupId: string; onLeave: () =
     )
   }
 
+  // Keep the view's rows in member order so settle-up output is stable.
+  const order = new Map(members.map((m, i) => [m.id, i]))
+  const orderedBalances = [...balances].sort(
+    (a, b) => (order.get(a.memberId) ?? 0) - (order.get(b.memberId) ?? 0),
+  )
+
   return (
-    <main className="flex flex-1 flex-col gap-6 px-4 py-6">
-      <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
-        {state.group.name}
-      </h1>
-      <ShareLink groupId={groupId} />
-      <MemberList
-        groupId={groupId}
-        members={members}
-        onAdded={(m) => setMembers((prev) => [...prev, m])}
-      />
+    <main className="flex flex-1 flex-col gap-5 px-4 py-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
+          {state.group.name}
+        </h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {members.length} {members.length === 1 ? 'member' : 'members'} · {expenses.length}{' '}
+          {expenses.length === 1 ? 'expense' : 'expenses'}
+        </p>
+      </div>
+
+      <nav
+        aria-label="Group sections"
+        className="sticky top-14.25 z-10 -mx-4 bg-slate-50/90 px-4 py-2 backdrop-blur dark:bg-slate-950/90"
+      >
+        <div className="grid grid-cols-3 rounded-2xl bg-slate-200/70 p-1 dark:bg-slate-800/70">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              aria-current={tab === t.id ? 'page' : undefined}
+              className={`h-10 rounded-xl text-sm font-medium transition ${
+                tab === t.id
+                  ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-950 dark:text-white'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {tab === 'balances' && (
+        <Balances
+          balances={orderedBalances}
+          hasExpenses={expenses.length > 0}
+          totalSpentCents={expenses.reduce((sum, e) => sum + e.amount_cents, 0)}
+          onGoTo={setTab}
+        />
+      )}
+
+      {tab === 'expenses' && (
+        <>
+          <AddExpense
+            group={state.group}
+            members={members}
+            onAdded={(e) => {
+              setExpenses((prev) => [e, ...prev])
+              refreshBalances()
+            }}
+            onAddMembers={() => setTab('members')}
+          />
+          <ExpenseList members={members} expenses={expenses} />
+        </>
+      )}
+
+      {tab === 'members' && (
+        <>
+          <MemberList
+            groupId={groupId}
+            members={members}
+            onAdded={(m) => {
+              setMembers((prev) => [...prev, m])
+              refreshBalances()
+            }}
+          />
+          {members.length >= 2 && expenses.length === 0 && (
+            <button
+              type="button"
+              onClick={() => setTab('expenses')}
+              className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-600 font-medium text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              Next: add an expense <span aria-hidden="true">→</span>
+            </button>
+          )}
+          <ShareLink groupId={groupId} />
+        </>
+      )}
     </main>
   )
 }
